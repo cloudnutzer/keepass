@@ -152,6 +152,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   <div class="stats" id="stats"></div>
   <div class="footer">
     <button class="btn btn-secondary btn-small" onclick="exportVault()">&#128190; Vault exportieren</button>
+    <button class="btn btn-secondary btn-small" onclick="exportJsonVault()">&#128196; JSON exportieren</button>
     <button class="btn btn-secondary btn-small" onclick="changeMasterPw()">&#128273; Passwort aendern</button>
     <button class="btn btn-ghost btn-small" onclick="lockApp()">&#128274; Sperren</button>
   </div>
@@ -584,9 +585,124 @@ function importVault() {
   document.getElementById('importFile').click();
 }
 
+async function encryptField(text, key) {
+  if (!text) return '';
+  const iv = crypto.getRandomValues(new Uint8Array(IV_LEN));
+  const encoded = new TextEncoder().encode(text);
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+  const result = new Uint8Array(IV_LEN + ciphertext.byteLength);
+  result.set(iv);
+  result.set(new Uint8Array(ciphertext), IV_LEN);
+  return arrayToUrlSafeB64(result);
+}
+
+async function decryptField(b64, key) {
+  if (!b64) return '';
+  const data = urlSafeB64ToArray(b64);
+  const iv = data.slice(0, IV_LEN);
+  const ciphertext = data.slice(IV_LEN);
+  const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+  return new TextDecoder().decode(decrypted);
+}
+
+async function exportJsonVault() {
+  const exportSalt = crypto.getRandomValues(new Uint8Array(SALT_LEN));
+  const pw = prompt('Passwort fuer den JSON-Export (verschluesselt Passwort- und Notiz-Felder):');
+  if (!pw) return;
+  if (pw.length < 6) { toast('Mindestens 6 Zeichen', true); return; }
+  const exportKey = await deriveKey(pw, exportSalt);
+
+  const entries = [];
+  for (const e of vault.entries) {
+    entries.push({
+      id: e.id,
+      title: e.title,
+      category: e.category || 'other',
+      username: e.username,
+      url: e.url || '',
+      password: await encryptField(e.password, exportKey),
+      notes: await encryptField(e.notes || '', exportKey),
+      created: e.created,
+      modified: e.modified
+    });
+  }
+
+  const jsonData = {
+    format: 'keepass-web-json',
+    version: 2,
+    exported: new Date().toISOString(),
+    salt: arrayToUrlSafeB64(exportSalt),
+    entries
+  };
+
+  const blob = new Blob([JSON.stringify(jsonData, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `keepass-vault-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast(`JSON exportiert (${entries.length} Eintraege, Passwoerter verschluesselt)`);
+}
+
 document.getElementById('importFile').addEventListener('change', async e => {
   const file = e.target.files[0];
   if (!file) return;
+
+  if (file.name.endsWith('.json')) {
+    const text = await file.text();
+    let jsonData;
+    try { jsonData = JSON.parse(text); } catch { toast('Ungueltige JSON-Datei', true); e.target.value = ''; return; }
+    if (jsonData.format !== 'keepass-web-json') { toast('Unbekanntes JSON-Format', true); e.target.value = ''; return; }
+
+    const pw = prompt('Passwort fuer den JSON-Import (entschluesselt Passwort- und Notiz-Felder):');
+    if (!pw) { e.target.value = ''; return; }
+
+    try {
+      const importSalt = urlSafeB64ToArray(jsonData.salt);
+      const importKey = await deriveKey(pw, importSalt);
+
+      const entries = [];
+      for (const je of jsonData.entries) {
+        entries.push({
+          id: je.id || crypto.randomUUID(),
+          title: je.title,
+          category: je.category || 'other',
+          username: je.username,
+          url: je.url || '',
+          password: await decryptField(je.password, importKey),
+          notes: await decryptField(je.notes, importKey),
+          created: je.created || Date.now(),
+          modified: je.modified || Date.now()
+        });
+      }
+
+      if (!derivedKey) {
+        const vaultPw = prompt('Master-Passwort fuer deine lokale Vault (neu oder bestehend):');
+        if (!vaultPw) { e.target.value = ''; return; }
+        if (hasExistingVault()) {
+          await loadVault(vaultPw);
+        } else {
+          await createVault(vaultPw);
+        }
+      }
+
+      const existingIds = new Set(vault.entries.map(e => e.id));
+      let added = 0, skipped = 0;
+      for (const entry of entries) {
+        if (existingIds.has(entry.id)) { skipped++; } else { vault.entries.push(entry); added++; }
+      }
+
+      await saveVault();
+      isNew = false;
+      showApp();
+      toast(`JSON importiert: ${added} neu${skipped ? ', ' + skipped + ' uebersprungen' : ''}`);
+    } catch {
+      toast('Import fehlgeschlagen - falsches Passwort?', true);
+    }
+    e.target.value = '';
+    return;
+  }
+
   const buf = await file.arrayBuffer();
   const data = new Uint8Array(buf);
 
