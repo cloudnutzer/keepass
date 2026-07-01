@@ -34,6 +34,7 @@ Auch gehostet bleiben alle Daten lokal im Browser (localStorage). Der Server lie
 - **Vault Export/Import** - Verschluesselte `.vault`-Datei fuer Backup und Geraetewechsel
 - **Auto-Lock** - Automatische Sperrung nach 10 Minuten Inaktivitaet
 - **Clipboard-Schutz** - Zwischenablage wird nach 30 Sekunden automatisch geleert
+- **Passwort-Sharing** - Einzelne Eintraege verschluesselt teilen (Zwei-Kanal-Prinzip: Link + Schluessel separat)
 - **Tastaturkuerzel** - `Ctrl+N` (Neu), `Ctrl+L` (Sperren), `Ctrl+E` (Export), `Esc` (Modal schliessen)
 - **Responsive Design** - Funktioniert auf Desktop, Tablet und Smartphone
 - **Dark Mode** - Augenschonendes dunkles Design
@@ -232,6 +233,24 @@ Die Export-Datei ist AES-256-GCM verschluesselt und ohne das Master-Passwort wer
 2. `.vault`-Datei auswaehlen
 3. Das Master-Passwort der Export-Datei eingeben
 4. Der Vault wird geladen und in localStorage gespeichert
+
+### Passwort teilen
+
+Einzelne Eintraege koennen sicher mit anderen Personen geteilt werden. Das Prinzip: Link und Schluessel werden ueber **verschiedene Kanaele** gesendet (z.B. Link per E-Mail, Schluessel per WhatsApp).
+
+**Senden:**
+1. Eintrag oeffnen (auf Karte klicken)
+2. "Teilen" klicken
+3. **Link kopieren** und ueber Kanal 1 senden (z.B. E-Mail, Slack)
+4. **Schluessel kopieren** und ueber Kanal 2 senden (z.B. WhatsApp, Signal)
+
+**Empfangen:**
+1. Link im Browser oeffnen
+2. Den separat erhaltenen Schluessel eingeben
+3. "Entschluesseln" klicken
+4. Passwort, Benutzername etc. werden angezeigt (kopierbar)
+
+**Sicherheit:** Der Link enthaelt den verschluesselten Eintrag (AES-256-GCM), aber nicht den Schluessel. Selbst wenn der Link abgefangen wird, ist er ohne den separat gesendeten Schluessel wertlos. Alles bleibt client-seitig.
 
 ### Master-Passwort aendern
 

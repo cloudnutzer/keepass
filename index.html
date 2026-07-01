@@ -85,6 +85,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .cat-work{background:#f39c12}
 .cat-other{background:#7f8c8d}
 
+.share-warning{background:var(--card);border-radius:8px;padding:14px;font-size:13px;color:var(--orange);line-height:1.5;text-align:center;margin-bottom:16px}
+.share-field{position:relative;margin-bottom:12px}
+.share-field label{display:block;font-size:13px;color:var(--text2);margin-bottom:6px;font-weight:500}
+.share-field textarea,.share-field input[readonly]{width:100%;padding:10px 44px 10px 14px;border:2px solid var(--card);border-radius:8px;background:var(--bg);color:var(--text);font-size:13px;font-family:'SF Mono',Monaco,Consolas,monospace;outline:none;resize:none;word-break:break-all}
+.share-field .copy-btn{position:absolute;right:8px;bottom:8px}
+.result-row{display:flex;align-items:center;background:var(--surface);border:1px solid var(--card);border-radius:8px;padding:10px 14px;gap:10px}
+.result-row .label{font-size:12px;color:var(--text2);width:70px;flex-shrink:0}
+.result-row .value{flex:1;font-size:14px;font-family:monospace;word-break:break-all;min-width:0}
+
 @media(max-width:600px){
   .toolbar{flex-direction:column}
   .entry-actions{flex-direction:column}
@@ -109,6 +118,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     </div>
   </div>
   <input type="file" id="importFile" accept=".vault,.json" style="display:none">
+</div>
+
+<!-- Receive Shared Entry -->
+<div class="lock-screen" id="receiveScreen" style="display:none">
+  <div class="lock-icon">&#128275;</div>
+  <h1>Geteiltes Passwort</h1>
+  <p>Gib den Schluessel ein, den du separat erhalten hast.</p>
+  <div class="lock-form" id="receiveForm">
+    <input type="text" id="receiveKey" placeholder="Schluessel einfuegen" style="font-family:monospace">
+    <button class="btn btn-primary" onclick="decryptSharedEntry()">Entschluesseln</button>
+    <button class="btn btn-ghost" onclick="closeReceiveScreen()">Abbrechen</button>
+  </div>
+  <div id="sharedResult" style="display:none;flex-direction:column;gap:8px;width:100%;max-width:420px;margin-top:24px"></div>
 </div>
 
 <!-- Main App -->
@@ -188,7 +210,32 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('entryModal')">Abbrechen</button>
       <button class="btn btn-danger" id="deleteBtn" onclick="deleteEntry()" style="display:none">Loeschen</button>
+      <button class="btn btn-secondary" id="shareBtn" onclick="shareEntry(editingId)" style="display:none">&#128279; Teilen</button>
       <button class="btn btn-primary" onclick="saveEntry()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- Share Modal -->
+<div class="modal-overlay" id="shareModal">
+  <div class="modal">
+    <h2>&#128279; Passwort teilen</h2>
+    <div class="share-warning">
+      &#9888; Sende Link und Schluessel ueber <strong>VERSCHIEDENE</strong> Kanaele!<br>
+      Z.B. Link per E-Mail, Schluessel per WhatsApp.
+    </div>
+    <div class="share-field">
+      <label>Kanal 1 - Verschluesselter Link:</label>
+      <textarea id="shareLink" rows="3" readonly></textarea>
+      <button class="btn btn-icon btn-secondary copy-btn" onclick="copyShareField('shareLink','Link kopiert')" title="Kopieren">&#128203;</button>
+    </div>
+    <div class="share-field">
+      <label>Kanal 2 - Schluessel (separat senden!):</label>
+      <input type="text" id="shareKey" readonly>
+      <button class="btn btn-icon btn-secondary copy-btn" onclick="copyShareField('shareKey','Schluessel kopiert')" title="Kopieren">&#128203;</button>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('shareModal')">Schliessen</button>
     </div>
   </div>
 </div>
@@ -300,6 +347,7 @@ async function handleUnlock() {
 
 document.getElementById('masterPw').addEventListener('keydown', e => { if (e.key === 'Enter') handleUnlock(); });
 document.addEventListener('DOMContentLoaded', () => {
+  if (checkForSharedEntry()) return;
   isNew = !hasExistingVault();
   if (isNew) {
     document.getElementById('masterPw').placeholder = 'Neues Master-Passwort waehlen';
@@ -393,6 +441,7 @@ function openAddModal() {
   document.getElementById('fUrl').value = '';
   document.getElementById('fNotes').value = '';
   document.getElementById('deleteBtn').style.display = 'none';
+  document.getElementById('shareBtn').style.display = 'none';
   document.getElementById('genOptions').style.display = 'none';
   updateStrength();
   openModal('entryModal');
@@ -412,6 +461,7 @@ function openEditModal(id) {
   document.getElementById('fUrl').value = entry.url || '';
   document.getElementById('fNotes').value = entry.notes || '';
   document.getElementById('deleteBtn').style.display = '';
+  document.getElementById('shareBtn').style.display = '';
   document.getElementById('genOptions').style.display = 'none';
   updateStrength();
   openModal('entryModal');
@@ -602,6 +652,137 @@ document.addEventListener('keydown', e => {
     exportVault();
   }
 });
+
+// Password Sharing (two-channel principle)
+function arrayToUrlSafeB64(arr) {
+  let str = '';
+  for (let i = 0; i < arr.length; i++) str += String.fromCharCode(arr[i]);
+  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function urlSafeB64ToArray(b64) {
+  const padded = b64.replace(/-/g, '+').replace(/_/g, '/');
+  const remainder = padded.length % 4;
+  const final = remainder ? padded + '='.repeat(4 - remainder) : padded;
+  return Uint8Array.from(atob(final), c => c.charCodeAt(0));
+}
+
+async function shareEntry(id) {
+  const entry = vault.entries.find(e => e.id === id);
+  if (!entry) return;
+  closeModal('entryModal');
+
+  const rawKey = crypto.getRandomValues(new Uint8Array(32));
+  const key = await crypto.subtle.importKey('raw', rawKey, { name: 'AES-GCM' }, false, ['encrypt']);
+
+  const shareData = { t: entry.title, u: entry.username, p: entry.password, r: entry.url || '', n: entry.notes || '' };
+  const iv = crypto.getRandomValues(new Uint8Array(IV_LEN));
+  const encoded = new TextEncoder().encode(JSON.stringify(shareData));
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+  const encrypted = new Uint8Array(IV_LEN + ciphertext.byteLength);
+  encrypted.set(iv);
+  encrypted.set(new Uint8Array(ciphertext), IV_LEN);
+
+  const baseUrl = location.href.split('#')[0].split('?')[0];
+  document.getElementById('shareLink').value = `${baseUrl}#share=${arrayToUrlSafeB64(encrypted)}`;
+  document.getElementById('shareKey').value = arrayToUrlSafeB64(rawKey);
+  openModal('shareModal');
+}
+
+async function copyShareField(fieldId, msg) {
+  try {
+    await navigator.clipboard.writeText(document.getElementById(fieldId).value);
+    toast(msg);
+  } catch { toast('Kopieren fehlgeschlagen', true); }
+}
+
+async function copyText(text, msg) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(msg);
+  } catch { toast('Kopieren fehlgeschlagen', true); }
+}
+
+let pendingShareData = null;
+
+function checkForSharedEntry() {
+  const hash = location.hash;
+  if (!hash.startsWith('#share=')) return false;
+  pendingShareData = hash.slice(7);
+  document.getElementById('lockScreen').style.display = 'none';
+  document.getElementById('receiveScreen').style.display = 'flex';
+  document.getElementById('receiveKey').focus();
+  document.getElementById('receiveKey').addEventListener('keydown', e => { if (e.key === 'Enter') decryptSharedEntry(); });
+  return true;
+}
+
+async function decryptSharedEntry() {
+  const keyB64 = document.getElementById('receiveKey').value.trim();
+  if (!keyB64 || !pendingShareData) { toast('Schluessel eingeben', true); return; }
+
+  try {
+    const rawKey = urlSafeB64ToArray(keyB64);
+    const encrypted = urlSafeB64ToArray(pendingShareData);
+    const key = await crypto.subtle.importKey('raw', rawKey, { name: 'AES-GCM' }, false, ['decrypt']);
+    const iv = encrypted.slice(0, IV_LEN);
+    const ciphertext = encrypted.slice(IV_LEN);
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+    const data = JSON.parse(new TextDecoder().decode(decrypted));
+
+    const el = document.getElementById('sharedResult');
+    el.innerHTML = '';
+    const addRow = (label, val, copyable, blurred) => {
+      const row = document.createElement('div');
+      row.className = 'result-row';
+      const lbl = document.createElement('span');
+      lbl.className = 'label';
+      lbl.textContent = label;
+      const valEl = document.createElement('span');
+      valEl.className = 'value';
+      valEl.textContent = val;
+      if (blurred) { valEl.style.filter = 'blur(4px)'; valEl.style.cursor = 'pointer'; valEl.onclick = () => { valEl.style.filter = valEl.style.filter ? '' : 'blur(4px)'; }; }
+      row.appendChild(lbl);
+      row.appendChild(valEl);
+      if (copyable) {
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-icon btn-secondary';
+        btn.innerHTML = '&#128203;';
+        btn.title = 'Kopieren';
+        btn.onclick = () => copyText(val, label + ' kopiert');
+        row.appendChild(btn);
+      }
+      el.appendChild(row);
+    };
+    addRow('Titel', data.t);
+    if (data.u) addRow('Benutzer', data.u, true);
+    if (data.p) addRow('Passwort', data.p, true, true);
+    if (data.r) addRow('URL', data.r, true);
+    if (data.n) addRow('Notizen', data.n);
+    const closeDiv = document.createElement('div');
+    closeDiv.style.cssText = 'text-align:center;margin-top:12px';
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'btn btn-ghost';
+    closeBtn.textContent = 'Schliessen';
+    closeBtn.onclick = closeReceiveScreen;
+    closeDiv.appendChild(closeBtn);
+    el.appendChild(closeDiv);
+    el.style.display = 'flex';
+    document.getElementById('receiveForm').style.display = 'none';
+    toast('Entschluesselt!');
+  } catch {
+    toast('Falscher Schluessel', true);
+  }
+}
+
+function closeReceiveScreen() {
+  document.getElementById('receiveScreen').style.display = 'none';
+  document.getElementById('receiveForm').style.display = '';
+  document.getElementById('sharedResult').style.display = 'none';
+  document.getElementById('receiveKey').value = '';
+  pendingShareData = null;
+  history.replaceState(null, '', location.pathname);
+  document.getElementById('lockScreen').style.display = 'flex';
+}
 
 // Auto-lock after 10 minutes of inactivity
 let lockTimer;
