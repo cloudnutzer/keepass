@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KeePass Web - Offline Passwort-Manager</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#1a1a2e;--surface:#16213e;--card:#0f3460;--accent:#e94560;--accent2:#533483;--text:#eee;--text2:#aab;--green:#2ecc71;--orange:#f39c12;--red:#e74c3c;--radius:12px;--shadow:0 4px 20px rgba(0,0,0,.3)}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;align-items:center}
+.lock-screen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;width:100%;padding:20px}
+.lock-icon{font-size:80px;margin-bottom:20px}
+.lock-screen h1{font-size:28px;margin-bottom:8px}
+.lock-screen p{color:var(--text2);margin-bottom:30px;text-align:center}
+.lock-form{display:flex;flex-direction:column;gap:12px;width:100%;max-width:380px}
+.lock-form input{padding:14px 18px;border:2px solid var(--card);border-radius:var(--radius);background:var(--surface);color:var(--text);font-size:16px;outline:none;transition:.2s}
+.lock-form input:focus{border-color:var(--accent)}
+.btn{padding:12px 24px;border:none;border-radius:var(--radius);font-size:15px;font-weight:600;cursor:pointer;transition:.2s;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.btn:active{transform:scale(.97)}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:#c73850}
+.btn-secondary{background:var(--card);color:var(--text)}
+.btn-secondary:hover{background:#1a4a7a}
+.btn-ghost{background:transparent;color:var(--text2);padding:8px 16px}
+.btn-ghost:hover{color:var(--text)}
+.btn-danger{background:var(--red);color:#fff}
+.btn-danger:hover{background:#c0392b}
+.btn-small{padding:8px 14px;font-size:13px}
+.btn-icon{width:36px;height:36px;padding:0;border-radius:8px}
+
+.app{display:none;width:100%;max-width:900px;padding:20px;flex:1}
+.app.active{display:flex;flex-direction:column}
+
+.toolbar{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center}
+.search-box{flex:1;min-width:200px;padding:10px 16px;border:2px solid var(--card);border-radius:var(--radius);background:var(--surface);color:var(--text);font-size:15px;outline:none;transition:.2s}
+.search-box:focus{border-color:var(--accent)}
+
+.entries{display:flex;flex-direction:column;gap:10px;flex:1;overflow-y:auto}
+.entry-card{background:var(--surface);border:1px solid var(--card);border-radius:var(--radius);padding:16px;cursor:pointer;transition:.2s;display:flex;align-items:center;gap:14px}
+.entry-card:hover{border-color:var(--accent);transform:translateY(-1px);box-shadow:var(--shadow)}
+.entry-icon{width:42px;height:42px;border-radius:10px;background:var(--card);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+.entry-info{flex:1;min-width:0}
+.entry-title{font-weight:600;font-size:16px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.entry-user{color:var(--text2);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.entry-actions{display:flex;gap:6px;flex-shrink:0}
+
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.active{display:flex}
+.modal{background:var(--surface);border:1px solid var(--card);border-radius:16px;padding:28px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.modal h2{font-size:20px;margin-bottom:20px;display:flex;align-items:center;gap:10px}
+.form-group{margin-bottom:16px}
+.form-group label{display:block;font-size:13px;color:var(--text2);margin-bottom:6px;font-weight:500}
+.form-group input,.form-group select,.form-group textarea{width:100%;padding:10px 14px;border:2px solid var(--card);border-radius:8px;background:var(--bg);color:var(--text);font-size:14px;outline:none;transition:.2s;font-family:inherit}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--accent)}
+.form-group textarea{resize:vertical;min-height:60px}
+.password-field{position:relative}
+.password-field input{padding-right:80px}
+.password-field .pw-actions{position:absolute;right:4px;top:50%;transform:translateY(-50%);display:flex;gap:2px}
+.modal-actions{display:flex;gap:10px;margin-top:24px;justify-content:flex-end}
+
+.pw-strength{height:4px;border-radius:2px;margin-top:6px;background:var(--card);overflow:hidden}
+.pw-strength-bar{height:100%;border-radius:2px;transition:width .3s,background .3s}
+
+.toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:var(--green);color:#fff;padding:12px 24px;border-radius:var(--radius);font-weight:500;z-index:200;opacity:0;transition:.3s;pointer-events:none}
+.toast.show{opacity:1}
+.toast.error{background:var(--red)}
+
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;color:var(--text2);text-align:center;padding:60px 20px}
+.empty-state .icon{font-size:60px;margin-bottom:16px;opacity:.5}
+.empty-state h3{font-size:18px;margin-bottom:8px;color:var(--text)}
+
+.footer{display:flex;gap:10px;padding:16px 0;flex-wrap:wrap;justify-content:center}
+.stats{color:var(--text2);font-size:13px;text-align:center;padding:8px 0}
+
+.gen-options{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
+.gen-options label{display:flex;align-items:center;gap:4px;font-size:13px;color:var(--text2);cursor:pointer}
+.gen-options input[type=checkbox]{accent-color:var(--accent)}
+.gen-options input[type=number]{width:60px;padding:4px 8px}
+
+.category-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.cat-login{background:#3498db}
+.cat-finance{background:#2ecc71}
+.cat-email{background:#e74c3c}
+.cat-social{background:#9b59b6}
+.cat-work{background:#f39c12}
+.cat-other{background:#7f8c8d}
+
+@media(max-width:600px){
+  .toolbar{flex-direction:column}
+  .entry-actions{flex-direction:column}
+  .modal{padding:20px}
+  .gen-options{flex-direction:column}
+}
+</style>
+</head>
+<body>
+
+<!-- Lock Screen -->
+<div class="lock-screen" id="lockScreen">
+  <div class="lock-icon">&#128274;</div>
+  <h1>KeePass Web</h1>
+  <p>Offline Passwort-Manager<br>Alles bleibt in deinem Browser. Kein Server, kein Tracking.</p>
+  <div class="lock-form" id="lockForm">
+    <input type="password" id="masterPw" placeholder="Master-Passwort" autofocus>
+    <input type="password" id="masterPw2" placeholder="Master-Passwort bestaetigen" style="display:none">
+    <button class="btn btn-primary" id="unlockBtn" onclick="handleUnlock()">Entsperren</button>
+    <div style="display:flex;gap:10px;justify-content:center;margin-top:10px">
+      <button class="btn btn-ghost" onclick="importVault()">&#128194; Vault importieren</button>
+    </div>
+  </div>
+  <input type="file" id="importFile" accept=".vault,.json" style="display:none">
+</div>
+
+<!-- Main App -->
+<div class="app" id="app">
+  <div class="toolbar">
+    <input type="text" class="search-box" id="searchBox" placeholder="&#128269; Suchen..." oninput="renderEntries()">
+    <select class="btn btn-secondary" id="filterCat" onchange="renderEntries()" style="padding:10px 14px">
+      <option value="">Alle Kategorien</option>
+      <option value="login">Login</option>
+      <option value="finance">Finanzen</option>
+      <option value="email">E-Mail</option>
+      <option value="social">Social Media</option>
+      <option value="work">Arbeit</option>
+      <option value="other">Sonstiges</option>
+    </select>
+    <button class="btn btn-primary" onclick="openAddModal()">&#43; Neu</button>
+  </div>
+  <div class="entries" id="entriesList"></div>
+  <div class="stats" id="stats"></div>
+  <div class="footer">
+    <button class="btn btn-secondary btn-small" onclick="exportVault()">&#128190; Vault exportieren</button>
+    <button class="btn btn-secondary btn-small" onclick="changeMasterPw()">&#128273; Passwort aendern</button>
+    <button class="btn btn-ghost btn-small" onclick="lockApp()">&#128274; Sperren</button>
+  </div>
+</div>
+
+<!-- Entry Modal -->
+<div class="modal-overlay" id="entryModal">
+  <div class="modal">
+    <h2 id="modalTitle">&#128221; Neuer Eintrag</h2>
+    <div class="form-group">
+      <label>Titel</label>
+      <input type="text" id="fTitle" placeholder="z.B. Google, Amazon, Bank...">
+    </div>
+    <div class="form-group">
+      <label>Kategorie</label>
+      <select id="fCategory">
+        <option value="login">Login</option>
+        <option value="finance">Finanzen</option>
+        <option value="email">E-Mail</option>
+        <option value="social">Social Media</option>
+        <option value="work">Arbeit</option>
+        <option value="other">Sonstiges</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Benutzername / E-Mail</label>
+      <input type="text" id="fUser" placeholder="user@example.com">
+    </div>
+    <div class="form-group">
+      <label>Passwort</label>
+      <div class="password-field">
+        <input type="password" id="fPass">
+        <div class="pw-actions">
+          <button class="btn btn-icon btn-secondary" onclick="togglePwVis('fPass')" title="Anzeigen">&#128065;</button>
+          <button class="btn btn-icon btn-secondary" onclick="generateAndFill()" title="Generieren">&#127922;</button>
+        </div>
+      </div>
+      <div class="pw-strength"><div class="pw-strength-bar" id="pwStrength"></div></div>
+      <div class="gen-options" id="genOptions" style="display:none">
+        <label><input type="number" id="genLen" value="20" min="8" max="128"> Zeichen</label>
+        <label><input type="checkbox" id="genUpper" checked> A-Z</label>
+        <label><input type="checkbox" id="genLower" checked> a-z</label>
+        <label><input type="checkbox" id="genDigits" checked> 0-9</label>
+        <label><input type="checkbox" id="genSymbols" checked> Symbole</label>
+        <button class="btn btn-ghost btn-small" onclick="generateAndFill()">&#8635; Neu</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>URL</label>
+      <input type="text" id="fUrl" placeholder="https://...">
+    </div>
+    <div class="form-group">
+      <label>Notizen</label>
+      <textarea id="fNotes" placeholder="Optionale Notizen..."></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('entryModal')">Abbrechen</button>
+      <button class="btn btn-danger" id="deleteBtn" onclick="deleteEntry()" style="display:none">Loeschen</button>
+      <button class="btn btn-primary" onclick="saveEntry()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+const SALT_LEN = 16, IV_LEN = 12, ITERATIONS = 600000;
+let vault = { entries: [], version: 2 };
+let derivedKey = null;
+let currentSalt = null;
+let editingId = null;
+let isNew = true;
+
+// Crypto
+async function deriveKey(password, salt) {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: ITERATIONS, hash: 'SHA-256' },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+async function encrypt(data, key) {
+  const iv = crypto.getRandomValues(new Uint8Array(IV_LEN));
+  const encoded = new TextEncoder().encode(JSON.stringify(data));
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+  const result = new Uint8Array(IV_LEN + ciphertext.byteLength);
+  result.set(iv);
+  result.set(new Uint8Array(ciphertext), IV_LEN);
+  return result;
+}
+
+async function decrypt(data, key) {
+  const iv = data.slice(0, IV_LEN);
+  const ciphertext = data.slice(IV_LEN);
+  const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+  return JSON.parse(new TextDecoder().decode(decrypted));
+}
+
+// Storage
+function getStorageKey() { return 'keepassweb_vault'; }
+function getSaltKey() { return 'keepassweb_salt'; }
+
+async function saveVault() {
+  const encrypted = await encrypt(vault, derivedKey);
+  const b64 = btoa(String.fromCharCode(...encrypted));
+  const saltB64 = btoa(String.fromCharCode(...currentSalt));
+  localStorage.setItem(getStorageKey(), b64);
+  localStorage.setItem(getSaltKey(), saltB64);
+}
+
+async function loadVault(password) {
+  const b64 = localStorage.getItem(getStorageKey());
+  const saltB64 = localStorage.getItem(getSaltKey());
+  if (!b64 || !saltB64) return false;
+  currentSalt = Uint8Array.from(atob(saltB64), c => c.charCodeAt(0));
+  derivedKey = await deriveKey(password, currentSalt);
+  const data = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  vault = await decrypt(data, derivedKey);
+  return true;
+}
+
+async function createVault(password) {
+  currentSalt = crypto.getRandomValues(new Uint8Array(SALT_LEN));
+  derivedKey = await deriveKey(password, currentSalt);
+  vault = { entries: [], version: 2 };
+  await saveVault();
+}
+
+// Auth
+function hasExistingVault() {
+  return !!localStorage.getItem(getStorageKey());
+}
+
+async function handleUnlock() {
+  const pw = document.getElementById('masterPw').value;
+  if (!pw) return;
+
+  if (isNew) {
+    const pw2 = document.getElementById('masterPw2').value;
+    if (!pw2) {
+      document.getElementById('masterPw2').style.display = '';
+      document.getElementById('masterPw2').focus();
+      document.getElementById('unlockBtn').textContent = 'Vault erstellen';
+      return;
+    }
+    if (pw !== pw2) { toast('Passwoerter stimmen nicht ueberein', true); return; }
+    if (pw.length < 6) { toast('Mindestens 6 Zeichen', true); return; }
+    await createVault(pw);
+    toast('Vault erstellt!');
+    showApp();
+  } else {
+    try {
+      await loadVault(pw);
+      showApp();
+    } catch {
+      toast('Falsches Passwort', true);
+      document.getElementById('masterPw').value = '';
+      document.getElementById('masterPw').focus();
+    }
+  }
+}
+
+document.getElementById('masterPw').addEventListener('keydown', e => { if (e.key === 'Enter') handleUnlock(); });
+document.addEventListener('DOMContentLoaded', () => {
+  isNew = !hasExistingVault();
+  if (isNew) {
+    document.getElementById('masterPw').placeholder = 'Neues Master-Passwort waehlen';
+    document.getElementById('masterPw2').style.display = '';
+    document.getElementById('unlockBtn').textContent = 'Vault erstellen';
+  }
+  document.getElementById('masterPw2').addEventListener('keydown', e => { if (e.key === 'Enter') handleUnlock(); });
+});
+
+function showApp() {
+  document.getElementById('lockScreen').style.display = 'none';
+  document.getElementById('app').classList.add('active');
+  renderEntries();
+}
+
+function lockApp() {
+  derivedKey = null;
+  document.getElementById('masterPw').value = '';
+  document.getElementById('masterPw2').value = '';
+  document.getElementById('app').classList.remove('active');
+  document.getElementById('lockScreen').style.display = 'flex';
+  document.getElementById('masterPw').focus();
+  isNew = !hasExistingVault();
+  if (isNew) {
+    document.getElementById('masterPw2').style.display = '';
+    document.getElementById('unlockBtn').textContent = 'Vault erstellen';
+  } else {
+    document.getElementById('masterPw2').style.display = 'none';
+    document.getElementById('unlockBtn').textContent = 'Entsperren';
+  }
+}
+
+// Rendering
+const CAT_ICONS = { login: '&#128273;', finance: '&#128176;', email: '&#9993;', social: '&#128172;', work: '&#128188;', other: '&#128196;' };
+const CAT_LABELS = { login: 'Login', finance: 'Finanzen', email: 'E-Mail', social: 'Social', work: 'Arbeit', other: 'Sonstiges' };
+
+function renderEntries() {
+  const q = document.getElementById('searchBox').value.toLowerCase();
+  const cat = document.getElementById('filterCat').value;
+  let filtered = vault.entries.filter(e => {
+    if (cat && e.category !== cat) return false;
+    if (q && !e.title.toLowerCase().includes(q) && !e.username.toLowerCase().includes(q) && !(e.url || '').toLowerCase().includes(q)) return false;
+    return true;
+  });
+  filtered.sort((a, b) => a.title.localeCompare(b.title));
+
+  const el = document.getElementById('entriesList');
+  if (filtered.length === 0) {
+    el.innerHTML = `<div class="empty-state"><div class="icon">&#128274;</div><h3>${q || cat ? 'Keine Treffer' : 'Vault ist leer'}</h3><p>${q || cat ? 'Versuche eine andere Suche' : 'Klicke + Neu um deinen ersten Eintrag zu erstellen'}</p></div>`;
+  } else {
+    el.innerHTML = filtered.map(e => `
+      <div class="entry-card" onclick="openEditModal('${e.id}')">
+        <div class="entry-icon">${CAT_ICONS[e.category] || CAT_ICONS.other}</div>
+        <div class="entry-info">
+          <div class="entry-title">${esc(e.title)}</div>
+          <div class="entry-user">${esc(e.username)}</div>
+        </div>
+        <div class="entry-actions">
+          <button class="btn btn-icon btn-secondary" onclick="event.stopPropagation();copyField('${e.id}','username')" title="User kopieren">&#128100;</button>
+          <button class="btn btn-icon btn-secondary" onclick="event.stopPropagation();copyField('${e.id}','password')" title="Passwort kopieren">&#128273;</button>
+          ${e.url ? `<button class="btn btn-icon btn-secondary" onclick="event.stopPropagation();window.open('${esc(e.url)}')" title="Oeffnen">&#128279;</button>` : ''}
+        </div>
+      </div>
+    `).join('');
+  }
+  document.getElementById('stats').textContent = `${vault.entries.length} Eintraege${filtered.length !== vault.entries.length ? ` (${filtered.length} angezeigt)` : ''}`;
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+// Copy
+async function copyField(id, field) {
+  const entry = vault.entries.find(e => e.id === id);
+  if (!entry) return;
+  const val = field === 'username' ? entry.username : entry.password;
+  try {
+    await navigator.clipboard.writeText(val);
+    toast(field === 'username' ? 'Benutzername kopiert' : 'Passwort kopiert (Zwischenablage wird in 30s geleert)');
+    if (field === 'password') setTimeout(() => navigator.clipboard.writeText(''), 30000);
+  } catch { toast('Kopieren fehlgeschlagen', true); }
+}
+
+// Modal
+function openAddModal() {
+  editingId = null;
+  document.getElementById('modalTitle').innerHTML = '&#128221; Neuer Eintrag';
+  document.getElementById('fTitle').value = '';
+  document.getElementById('fCategory').value = 'login';
+  document.getElementById('fUser').value = '';
+  document.getElementById('fPass').value = '';
+  document.getElementById('fUrl').value = '';
+  document.getElementById('fNotes').value = '';
+  document.getElementById('deleteBtn').style.display = 'none';
+  document.getElementById('genOptions').style.display = 'none';
+  updateStrength();
+  openModal('entryModal');
+  document.getElementById('fTitle').focus();
+}
+
+function openEditModal(id) {
+  const entry = vault.entries.find(e => e.id === id);
+  if (!entry) return;
+  editingId = id;
+  document.getElementById('modalTitle').innerHTML = '&#9998; Eintrag bearbeiten';
+  document.getElementById('fTitle').value = entry.title;
+  document.getElementById('fCategory').value = entry.category || 'login';
+  document.getElementById('fUser').value = entry.username;
+  document.getElementById('fPass').value = entry.password;
+  document.getElementById('fPass').type = 'password';
+  document.getElementById('fUrl').value = entry.url || '';
+  document.getElementById('fNotes').value = entry.notes || '';
+  document.getElementById('deleteBtn').style.display = '';
+  document.getElementById('genOptions').style.display = 'none';
+  updateStrength();
+  openModal('entryModal');
+}
+
+async function saveEntry() {
+  const title = document.getElementById('fTitle').value.trim();
+  const username = document.getElementById('fUser').value.trim();
+  const password = document.getElementById('fPass').value;
+  if (!title) { toast('Titel ist erforderlich', true); return; }
+
+  const entry = {
+    id: editingId || crypto.randomUUID(),
+    title,
+    category: document.getElementById('fCategory').value,
+    username,
+    password,
+    url: document.getElementById('fUrl').value.trim(),
+    notes: document.getElementById('fNotes').value.trim(),
+    modified: Date.now()
+  };
+
+  if (editingId) {
+    const idx = vault.entries.findIndex(e => e.id === editingId);
+    if (idx >= 0) { entry.created = vault.entries[idx].created; vault.entries[idx] = entry; }
+  } else {
+    entry.created = Date.now();
+    vault.entries.push(entry);
+  }
+
+  await saveVault();
+  closeModal('entryModal');
+  renderEntries();
+  toast(editingId ? 'Gespeichert' : 'Eintrag erstellt');
+}
+
+async function deleteEntry() {
+  if (!editingId) return;
+  if (!confirm('Eintrag wirklich loeschen?')) return;
+  vault.entries = vault.entries.filter(e => e.id !== editingId);
+  await saveVault();
+  closeModal('entryModal');
+  renderEntries();
+  toast('Geloescht');
+}
+
+function openModal(id) { document.getElementById(id).classList.add('active'); }
+function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+document.querySelectorAll('.modal-overlay').forEach(el => {
+  el.addEventListener('click', e => { if (e.target === el) closeModal(el.id); });
+});
+
+// Password generator
+function generatePassword() {
+  const len = parseInt(document.getElementById('genLen').value) || 20;
+  let chars = '';
+  if (document.getElementById('genUpper').checked) chars += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  if (document.getElementById('genLower').checked) chars += 'abcdefghijklmnopqrstuvwxyz';
+  if (document.getElementById('genDigits').checked) chars += '0123456789';
+  if (document.getElementById('genSymbols').checked) chars += '!@#$%^&*()_+-=[]{}|;:,.<>?';
+  if (!chars) chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const arr = new Uint32Array(len);
+  crypto.getRandomValues(arr);
+  return Array.from(arr, v => chars[v % chars.length]).join('');
+}
+
+function generateAndFill() {
+  document.getElementById('genOptions').style.display = document.getElementById('genOptions').style.display === 'none' ? 'flex' : '';
+  const pw = generatePassword();
+  document.getElementById('fPass').value = pw;
+  document.getElementById('fPass').type = 'text';
+  updateStrength();
+}
+
+function togglePwVis(id) {
+  const el = document.getElementById(id);
+  el.type = el.type === 'password' ? 'text' : 'password';
+}
+
+// Strength meter
+function calcStrength(pw) {
+  if (!pw) return 0;
+  let score = 0;
+  if (pw.length >= 8) score += 1;
+  if (pw.length >= 14) score += 1;
+  if (pw.length >= 20) score += 1;
+  if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) score += 1;
+  if (/\d/.test(pw)) score += 1;
+  if (/[^a-zA-Z0-9]/.test(pw)) score += 1;
+  if (pw.length >= 28) score += 1;
+  return Math.min(score, 5);
+}
+
+function updateStrength() {
+  const pw = document.getElementById('fPass').value;
+  const s = calcStrength(pw);
+  const bar = document.getElementById('pwStrength');
+  const colors = ['#e74c3c', '#e67e22', '#f39c12', '#27ae60', '#2ecc71', '#00b894'];
+  bar.style.width = pw ? `${(s + 1) * 16.6}%` : '0';
+  bar.style.background = colors[s] || colors[0];
+}
+document.getElementById('fPass').addEventListener('input', updateStrength);
+
+// Export / Import
+async function exportVault() {
+  const encrypted = await encrypt(vault, derivedKey);
+  const combined = new Uint8Array(SALT_LEN + encrypted.length);
+  combined.set(currentSalt);
+  combined.set(encrypted, SALT_LEN);
+  const blob = new Blob([combined], { type: 'application/octet-stream' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `keepass-vault-${new Date().toISOString().slice(0, 10)}.vault`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('Vault exportiert');
+}
+
+function importVault() {
+  document.getElementById('importFile').click();
+}
+
+document.getElementById('importFile').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const buf = await file.arrayBuffer();
+  const data = new Uint8Array(buf);
+
+  const pw = prompt('Master-Passwort fuer diese Vault-Datei:');
+  if (!pw) return;
+
+  try {
+    const salt = data.slice(0, SALT_LEN);
+    const encrypted = data.slice(SALT_LEN);
+    const key = await deriveKey(pw, salt);
+    const decrypted = await decrypt(encrypted, key);
+
+    currentSalt = salt;
+    derivedKey = key;
+    vault = decrypted;
+    await saveVault();
+    isNew = false;
+    showApp();
+    toast(`Vault importiert (${vault.entries.length} Eintraege)`);
+  } catch {
+    toast('Import fehlgeschlagen - falsches Passwort?', true);
+  }
+  e.target.value = '';
+});
+
+// Change master password
+async function changeMasterPw() {
+  const newPw = prompt('Neues Master-Passwort:');
+  if (!newPw) return;
+  if (newPw.length < 6) { toast('Mindestens 6 Zeichen', true); return; }
+  const confirm2 = prompt('Neues Passwort bestaetigen:');
+  if (newPw !== confirm2) { toast('Passwoerter stimmen nicht ueberein', true); return; }
+
+  currentSalt = crypto.getRandomValues(new Uint8Array(SALT_LEN));
+  derivedKey = await deriveKey(newPw, currentSalt);
+  await saveVault();
+  toast('Master-Passwort geaendert');
+}
+
+// Toast
+function toast(msg, err) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (err ? ' error' : '');
+  setTimeout(() => el.className = 'toast', 2500);
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal-overlay.active').forEach(m => closeModal(m.id));
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'n' && document.getElementById('app').classList.contains('active')) {
+    e.preventDefault();
+    openAddModal();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'l' && document.getElementById('app').classList.contains('active')) {
+    e.preventDefault();
+    lockApp();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'e' && document.getElementById('app').classList.contains('active')) {
+    e.preventDefault();
+    exportVault();
+  }
+});
+
+// Auto-lock after 10 minutes of inactivity
+let lockTimer;
+function resetLockTimer() {
+  clearTimeout(lockTimer);
+  if (derivedKey) lockTimer = setTimeout(() => { lockApp(); toast('Automatisch gesperrt (Inaktivitaet)'); }, 600000);
+}
+['mousemove', 'keydown', 'click', 'scroll', 'touchstart'].forEach(ev => document.addEventListener(ev, resetLockTimer));
+</script>
+</body>
+</html>
